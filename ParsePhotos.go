@@ -47,23 +47,17 @@ func main() {
 	}
 	channelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_ID"), 10, 64)
 
-	var db, err = sqlx.Connect("postgres", fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable",
-		os.Getenv("DB_HOST"), os.Getenv("DB_USER"), os.Getenv("DB_PASS"), os.Getenv("DB_NAME")))
+	var db, err = sqlx.Connect("postgres", fmt.Sprintf("host=%s user=%s password=%s dbname=%s "+
+		"sslmode=disable port=%s", os.Getenv("DB_HOST"), os.Getenv("DB_USER"), os.Getenv("DB_PASS"),
+		os.Getenv("DB_NAME"), os.Getenv("DB_PORT")))
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	//APIResponse := tgbotapi.APIResponse{}
-	//APIResponse, err = bot.SetWebhook(tgbotapi.NewWebhook("https://39105414b129.ngrok.io/"+os.Getenv("TOKEN")))
-	//if err != nil {
-	//	color.Red(err.Error())
-	//} else {
-	//	fmt.Println(APIResponse)
-	//}
+	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/" + os.Getenv("TOKEN")))
 
-	go http.ListenAndServe(":3000", nil)
-	updates := bot.ListenForWebhook("/" + os.Getenv("TOKEN"))
-	//log.Fatal(http.ListenAndServe(":3030", nil))
+	updates := bot.ListenForWebhook("/go/" + bot.Token)
+	go http.ListenAndServe(":8001", nil)
 
 	for update := range updates {
 		if update.Message != nil {
