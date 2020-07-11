@@ -169,39 +169,6 @@ func toggleButtons(db *sqlx.DB, mediaIds []int) {
 	//updateButtons(db, mediaRowsForKeyboardUpdate)
 }
 
-func toggleButtons2(db *sqlx.DB, mediaIds []int) {
-	var mediaRowsForKeyboardUpdate []elite_model.Media
-	var currentMedia = elite_model.Media{}
-	db.Get(&currentMedia, "SELECT link_id, message_id FROM media WHERE id=$1 LIMIT 1", mediaIds[0])
-
-	var countForActivate int
-	db.QueryRowx(`SELECT count(*) from media where row = 0 and id = any($1)`,
-		pq.Array(mediaIds)).Scan(&countForActivate)
-
-	db.Select(&mediaRowsForKeyboardUpdate, `SELECT message_id from media WHERE
-        (row > (
-            select min(row) from media where message_id = 1403 and id = any($1) and row > 0
-        ) and not exists(select 1 from media where message_id = 1403 and id = any($1) and row = 0))
-        and link_id = $3
-        or message_id = $2
-		GROUP BY message_id`, pq.Array(mediaIds), currentMedia.MessageId, currentMedia.LinkId)
-
-	for _, mediaId := range mediaIds {
-		var media = elite_model.Media{}
-		db.Get(&media, "SELECT id, row, link_id FROM media WHERE id=$1 LIMIT 1", mediaId)
-
-		if countForActivate == 0 {
-			db.QueryRowx(`UPDATE media SET row = row-1 WHERE link_id = $1 and row > $2`, media.LinkId, media.Row)
-			db.QueryRowx(`UPDATE media SET row = 0 where id = $1`, mediaId)
-		} else {
-			db.QueryRowx(`UPDATE media SET row = (select max(row) + 1 as max_row
-				FROM media WHERE link_id = $1) where id = $2`, media.LinkId, mediaId)
-		}
-	}
-
-	//updateButtons(db, mediaRowsForKeyboardUpdate)
-}
-
 func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
 	for _, mediaForUpdate := range mediasForUpdate {
 		var medias []elite_model.Media
@@ -299,7 +266,8 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 		"-", "",
 		"+", "")
 
-	chunkedPhotos := chunkBy(htmlquery.Find(doc, "//ul[@class='list-justified2']//li[a]//img[contains(@srcset, '800w')]//@srcset"), 6)
+	chunkedPhotos := chunkBy(htmlquery.Find(doc, "//ul[@class='list-justified2']//li[a]//"+
+		"img[contains(@srcset, '600w') or contains(@srcset, '800w')]//@srcset"), 6)
 	for i1, photos := range chunkedPhotos {
 		var files []interface{}
 		for i2, photo := range photos {
