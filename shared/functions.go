@@ -5,6 +5,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
+	"github.com/mitchellh/go-ps"
 	"os"
 )
 
@@ -22,4 +23,24 @@ func ConnectToDb() *sqlx.DB {
 		panic(err)
 	}
 	return db
+}
+
+func SingleProcess(name string) {
+	processList, err := ps.Processes()
+	if err != nil {
+		panic(err)
+	}
+
+	var count = 0
+	for x := range processList {
+		var process ps.Process
+		process = processList[x]
+		if process.Executable() == name {
+			count++
+		}
+	}
+
+	if count > 1 {
+		os.Exit(0)
+	}
 }

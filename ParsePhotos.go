@@ -33,6 +33,7 @@ var (
 )
 
 func main() {
+	shared.SingleProcess("ParsePhotos")
 	shared.LoadEnv()
 	var db = shared.ConnectToDb()
 
