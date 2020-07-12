@@ -2,13 +2,12 @@ package main
 
 import (
 	"Elitebabes.com/elite_model"
+	"Elitebabes.com/shared"
 	"encoding/json"
 	"fmt"
 	tgbotapi "github.com/PerfilovStanislav/telegram-bot-api"
 	"github.com/antchfx/htmlquery"
-	"github.com/fatih/color"
 	"github.com/jmoiron/sqlx"
-	"github.com/joho/godotenv"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"golang.org/x/net/html"
@@ -28,31 +27,21 @@ const ActionToggleId = 3
 const ActionNameId = 4
 const ActionDescriptionId = 5
 
-var channelId int64
-var bot *tgbotapi.BotAPI
-var err error
-
-func loadEnv() {
-	if err := godotenv.Load(); err != nil {
-		color.Red("No .env file found")
-	}
-}
+var (
+	channelId int64
+	bot       *tgbotapi.BotAPI
+)
 
 func main() {
-	loadEnv()
+	shared.LoadEnv()
+	var db = shared.ConnectToDb()
 
+	var err error
 	bot, err = tgbotapi.NewBotAPI(os.Getenv("TOKEN"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	channelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_ID"), 10, 64)
-
-	var db, err = sqlx.Connect("postgres", fmt.Sprintf("host=%s user=%s password=%s dbname=%s "+
-		"sslmode=disable port=%s", os.Getenv("DB_HOST"), os.Getenv("DB_USER"), os.Getenv("DB_PASS"),
-		os.Getenv("DB_NAME"), os.Getenv("DB_PORT")))
-	if err != nil {
-		log.Fatalln(err)
-	}
 
 	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/" + os.Getenv("TOKEN")))
 
@@ -62,7 +51,7 @@ func main() {
 	for update := range updates {
 		if update.Message != nil {
 			if isValidUrl(update.Message.Text) {
-				if linkExists(db, update.Message.Text) {
+				if linkUrlExists(db, update.Message.Text) {
 					continue
 				}
 				parseUrl(db, update)
@@ -77,7 +66,7 @@ func main() {
 					var link = elite_model.Link{}
 					db.Get(&link, "SELECT id, status FROM links WHERE id=$1 LIMIT 1", state.LinkId)
 					if link.Status > 0 {
-						send(tgbotapi.NewMessage(channelId, "поздно что-либо менять"))
+						sendSimpleMessage("поздно что-либо менять")
 						continue
 					} else {
 						var fieldName string
@@ -87,9 +76,7 @@ func main() {
 							fieldName = "description"
 						}
 						db.QueryRowx(`UPDATE links SET `+fieldName+` = $1 where id = $2`, update.Message.Text, link.Id)
-						message := tgbotapi.NewMessage(channelId, fmt.Sprintf("Поле %s изменено", fieldName))
-						message.BaseChat.DisableNotification = true
-						send(message)
+						sendSimpleMessage(fmt.Sprintf("Поле %s изменено", fieldName))
 						continue
 					}
 				}
@@ -100,6 +87,10 @@ func main() {
 			json.Unmarshal([]byte(update.CallbackQuery.Data), &callback)
 
 			if callback.LinkId > 0 && callback.ActionId > 0 {
+				if !linkIdExists(db, callback.LinkId) {
+					sendSimpleMessage("Подборка удалена")
+					continue
+				}
 				changeState(db, update.CallbackQuery.From.ID, callback.LinkId, callback.ActionId)
 			}
 
@@ -111,14 +102,19 @@ func main() {
 			} else if callback.ActionId == ActionDeleteId {
 				removeAction(update, "Удалено")
 			} else if callback.ActionId == ActionNameId {
-				send(tgbotapi.NewMessage(channelId, "Введите имя"))
+				sendSimpleMessage("Введи имя")
 			} else if callback.ActionId == ActionDescriptionId {
-				send(tgbotapi.NewMessage(channelId, "Введите описание"))
+				sendSimpleMessage("Введите описание")
 			}
 		}
 	}
+}
 
-	os.Exit(1)
+func linkIdExists(db *sqlx.DB, linkId int) bool {
+	if db.Get(&elite_model.Link{}, "SELECT id FROM links WHERE id=$1 LIMIT 1", linkId) != nil {
+		return false
+	}
+	return true
 }
 
 func removeAction(update tgbotapi.Update, text string) {
@@ -144,8 +140,11 @@ func toggleButtons(db *sqlx.DB, mediaIds []int) {
 		updateButtons(db, []elite_model.Media{mediasForActivate[0]})
 	} else {
 		var mediasForDeactivate []elite_model.Media
-		db.Select(&mediasForDeactivate, "SELECT id, message_id, link_id, row, message_id FROM media "+
+		var err = db.Select(&mediasForDeactivate, "SELECT id, message_id, link_id, row, message_id FROM media "+
 			"WHERE id=any($1) and row > 0 order by row desc", pq.Array(mediaIds))
+		if err != nil || mediasForDeactivate == nil {
+			return
+		}
 		var minRow = 999
 		for _, media := range mediasForDeactivate {
 			if media.Row < minRow {
@@ -165,8 +164,6 @@ func toggleButtons(db *sqlx.DB, mediaIds []int) {
 		}
 		updateButtons(db, messagesForUpdate)
 	}
-
-	//updateButtons(db, mediaRowsForKeyboardUpdate)
 }
 
 func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
@@ -213,14 +210,12 @@ type Callback struct {
 	ActionId int   `json:"action_id"`
 }
 
-func linkExists(db *sqlx.DB, url string) bool {
+func linkUrlExists(db *sqlx.DB, url string) bool {
 	link := elite_model.Link{}
-	err = db.Get(&link, "SELECT id, link, status, model, description FROM links WHERE link=$1 LIMIT 1", url)
+	err := db.Get(&link, "SELECT id, link, status, model, description FROM links WHERE link=$1 LIMIT 1", url)
 	if err == nil {
 		if link.Status > 0 {
-			config := tgbotapi.NewMessage(channelId, "Уже есть в базе")
-			config.BaseChat.DisableNotification = true
-			send(config)
+			sendSimpleMessage("Уже есть в базе")
 			return true
 		} else {
 			db.QueryRowx(`DELETE FROM links where id = $1`,
@@ -228,6 +223,12 @@ func linkExists(db *sqlx.DB, url string) bool {
 		}
 	}
 	return false
+}
+
+func sendSimpleMessage(text string) tgbotapi.Message {
+	config := tgbotapi.NewMessage(channelId, text)
+	config.BaseChat.DisableNotification = true
+	return send(config)
 }
 
 func isValidUrl(path string) bool {
@@ -338,11 +339,11 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 }
 
 func changeState(db *sqlx.DB, userId int, linkId int, stateType int) {
-	var error = db.QueryRowx(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
+	err := db.QueryRowx(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
 		ON CONFLICT (user_id) DO UPDATE SET 
 			link_id = EXCLUDED.link_id,
 			state_type = EXCLUDED.state_type`, userId, linkId, stateType)
-	if error != nil {
+	if err != nil {
 		fmt.Println(err)
 	}
 }
