@@ -318,7 +318,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 
 		var message = reSend(parseSiteBot, keyboardConfig)
 		db.QueryRowx(`UPDATE media SET message_id = $1 WHERE id = any($2)`, message.MessageID, pq.Array(mediaIds))
-		time.Sleep(time.Second * time.Duration(1))
+		time.Sleep(time.Second * time.Duration(3))
 	}
 
 	keyboardConfigPublish := tgbotapi.NewMessage(parseChannelId, "Действие")
