@@ -271,7 +271,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 		"+", "")
 
 	chunkedPhotos := chunkBy(htmlquery.Find(doc, "//ul[@class='list-justified2']//li[a]//"+
-		"img[contains(@srcset, '600w') or contains(@srcset, '800w')]//@srcset"), 6)
+		"img[contains(@srcset, '600w') or contains(@srcset, '800w')]//@srcset"), 5)
 	for i1, photos := range chunkedPhotos {
 		var files []interface{}
 		for i2, photo := range photos {
@@ -318,6 +318,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 
 		var message = reSend(parseSiteBot, keyboardConfig)
 		db.QueryRowx(`UPDATE media SET message_id = $1 WHERE id = any($2)`, message.MessageID, pq.Array(mediaIds))
+		time.Sleep(time.Second * time.Duration(1))
 	}
 
 	keyboardConfigPublish := tgbotapi.NewMessage(parseChannelId, "Действие")
