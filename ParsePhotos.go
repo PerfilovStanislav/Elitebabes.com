@@ -43,9 +43,9 @@ func main() {
 	}
 	channelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_ID"), 10, 64)
 
-	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/parse_photos/" + os.Getenv("PARSE_PHOTOS_BOT_TOKEN")))
+	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/parse_photos/" + os.Getenv("PARSE_PHOTOS_BOT_TOKEN")))
 
-	updates := bot.ListenForWebhook("/go/parse_photos/" + bot.Token)
+	updates := bot.ListenForWebhook("/go/elitebabes/parse_photos/" + bot.Token)
 	go http.ListenAndServe(":8001", nil)
 
 	for update := range updates {
