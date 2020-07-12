@@ -28,8 +28,9 @@ const ActionNameId = 4
 const ActionDescriptionId = 5
 
 var (
-	channelId int64
-	bot       *tgbotapi.BotAPI
+	parseChannelId int64
+	sendPhotosBot  *tgbotapi.BotAPI
+	parseSiteBot   *tgbotapi.BotAPI
 )
 
 func main() {
@@ -38,15 +39,16 @@ func main() {
 	var db = shared.ConnectToDb()
 
 	var err error
-	bot, err = tgbotapi.NewBotAPI(os.Getenv("PARSE_PHOTOS_BOT_TOKEN"))
+	sendPhotosBot, err = tgbotapi.NewBotAPI(os.Getenv("SEND_PHOTOS_BOT_TOKEN"))
+	parseSiteBot, err = tgbotapi.NewBotAPI(os.Getenv("PARSE_SITE_BOT_TOKEN"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	channelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_ID"), 10, 64)
+	parseChannelId, _ = strconv.ParseInt(os.Getenv("PARSE_CHANNEL_ID"), 10, 64)
 
-	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/parse_photos/" + os.Getenv("PARSE_PHOTOS_BOT_TOKEN")))
+	parseSiteBot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/parse_photos/" + parseSiteBot.Token))
 
-	updates := bot.ListenForWebhook("/go/elitebabes/parse_photos/" + bot.Token)
+	updates := parseSiteBot.ListenForWebhook("/go/elitebabes/parse_photos/" + parseSiteBot.Token)
 	go http.ListenAndServe(":8001", nil)
 
 	for update := range updates {
@@ -60,7 +62,7 @@ func main() {
 				var state = elite_model.State{}
 				var err = db.Get(&state, "SELECT link_id, state_type FROM states WHERE user_id=$1 LIMIT 1", update.Message.From.ID)
 				if err != nil {
-					send(tgbotapi.NewEditMessageText(channelId, update.CallbackQuery.Message.MessageID,
+					reSend(parseSiteBot, tgbotapi.NewEditMessageText(parseChannelId, update.CallbackQuery.Message.MessageID,
 						"Ты не найден в базе"))
 					continue
 				} else {
@@ -119,10 +121,10 @@ func linkIdExists(db *sqlx.DB, linkId int) bool {
 }
 
 func removeAction(update tgbotapi.Update, text string) {
-	config := tgbotapi.NewEditMessageText(channelId,
+	config := tgbotapi.NewEditMessageText(parseChannelId,
 		update.CallbackQuery.Message.MessageID,
 		text)
-	send(config)
+	reSend(parseSiteBot, config)
 }
 
 func public(db *sqlx.DB, linkId int) {
@@ -189,7 +191,7 @@ func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
 			mediaIds = append(mediaIds, media.Id)
 		}
 
-		keyboardConfig := tgbotapi.NewEditMessageReplyMarkup(channelId,
+		keyboardConfig := tgbotapi.NewEditMessageReplyMarkup(parseChannelId,
 			mediaForUpdate.MessageId,
 			tgbotapi.InlineKeyboardMarkup{
 				InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
@@ -201,7 +203,7 @@ func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
 					buttons,
 				},
 			})
-		send(keyboardConfig)
+		reSend(parseSiteBot, keyboardConfig)
 	}
 }
 
@@ -227,9 +229,9 @@ func linkUrlExists(db *sqlx.DB, url string) bool {
 }
 
 func sendSimpleMessage(text string) tgbotapi.Message {
-	config := tgbotapi.NewMessage(channelId, text)
+	config := tgbotapi.NewMessage(parseChannelId, text)
 	config.BaseChat.DisableNotification = true
-	return send(config)
+	return reSend(parseSiteBot, config)
 }
 
 func isValidUrl(path string) bool {
@@ -281,9 +283,9 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			}
 			files = append(files, inpMedia)
 		}
-		config := tgbotapi.NewMediaGroup(channelId, files)
+		config := tgbotapi.NewMediaGroup(parseChannelId, files)
 		config.BaseChat.DisableNotification = true
-		var messages = sendGroup(config)
+		var messages = reSendGroup(sendPhotosBot, config)
 
 		var mediaIds []int
 		for _, message := range messages {
@@ -293,7 +295,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			mediaIds = append(mediaIds, mediaId)
 		}
 
-		var keyboardConfig = tgbotapi.NewMessage(channelId, "Выбери самые лучшие фото ⚙")
+		var keyboardConfig = tgbotapi.NewMessage(parseChannelId, "Выбери самые лучшие фото ⚙")
 		var buttons []tgbotapi.InlineKeyboardButton
 		for _, mediaId := range mediaIds {
 			data := fmt.Sprintf(`{"media_id": [%d], "action_id": %d}`, mediaId, ActionToggleId)
@@ -314,11 +316,11 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 		}
 		keyboardConfig.BaseChat.DisableNotification = true
 
-		var message = send(keyboardConfig)
+		var message = reSend(parseSiteBot, keyboardConfig)
 		db.QueryRowx(`UPDATE media SET message_id = $1 WHERE id = any($2)`, message.MessageID, pq.Array(mediaIds))
 	}
 
-	keyboardConfigPublish := tgbotapi.NewMessage(channelId, "Действие")
+	keyboardConfigPublish := tgbotapi.NewMessage(parseChannelId, "Действие")
 	keyboardConfigPublish.BaseChat.DisableNotification = true
 	removeLink := fmt.Sprintf(`{"link_id": %d, "action_id": %d}`, linkId, ActionDeleteId)
 	publicLink := fmt.Sprintf(`{"link_id": %d, "action_id": %d}`, linkId, ActionPublicId)
@@ -336,7 +338,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			},
 		},
 	}
-	send(keyboardConfigPublish)
+	reSend(parseSiteBot, keyboardConfigPublish)
 }
 
 func changeState(db *sqlx.DB, userId int, linkId int, stateType int) {
@@ -349,25 +351,25 @@ func changeState(db *sqlx.DB, userId int, linkId int, stateType int) {
 	}
 }
 
-func send(c tgbotapi.Chattable) tgbotapi.Message {
+func reSend(bot *tgbotapi.BotAPI, c tgbotapi.Chattable) tgbotapi.Message {
 	var resp, err = bot.Send(c)
 	if err != nil {
 		var botError = err.(*tgbotapi.Error)
 		if botError.RetryAfter > 0 {
 			time.Sleep(time.Second * (time.Duration(botError.RetryAfter) + 1))
-			return send(c)
+			return reSend(bot, c)
 		}
 	}
 	return resp
 }
 
-func sendGroup(c tgbotapi.Chattable) []tgbotapi.Message {
+func reSendGroup(bot *tgbotapi.BotAPI, c tgbotapi.Chattable) []tgbotapi.Message {
 	var resp, err = bot.SendGroup(c)
 	if err != nil {
 		var botError = err.(*tgbotapi.Error)
 		if botError.RetryAfter > 0 {
 			time.Sleep(time.Second * (time.Duration(botError.RetryAfter) + 1))
-			return sendGroup(c)
+			return reSendGroup(bot, c)
 		}
 	}
 	return resp
