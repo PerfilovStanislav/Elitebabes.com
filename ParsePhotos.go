@@ -37,15 +37,15 @@ func main() {
 	var db = shared.ConnectToDb()
 
 	var err error
-	bot, err = tgbotapi.NewBotAPI(os.Getenv("TOKEN"))
+	bot, err = tgbotapi.NewBotAPI(os.Getenv("PARSE_PHOTOS_BOT_TOKEN"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	channelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_ID"), 10, 64)
 
-	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/" + os.Getenv("TOKEN")))
+	bot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/parse_photos/" + os.Getenv("PARSE_PHOTOS_BOT_TOKEN")))
 
-	updates := bot.ListenForWebhook("/go/" + bot.Token)
+	updates := bot.ListenForWebhook("/go/parse_photos/" + bot.Token)
 	go http.ListenAndServe(":8001", nil)
 
 	for update := range updates {
