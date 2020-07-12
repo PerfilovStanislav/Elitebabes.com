@@ -286,6 +286,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 		config := tgbotapi.NewMediaGroup(parseChannelId, files)
 		config.BaseChat.DisableNotification = true
 		var messages = reSendGroup(sendPhotosBot, config)
+		time.Sleep(time.Second * time.Duration(1))
 
 		var mediaIds []int
 		for _, message := range messages {
@@ -318,7 +319,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 
 		var message = reSend(parseSiteBot, keyboardConfig)
 		db.QueryRowx(`UPDATE media SET message_id = $1 WHERE id = any($2)`, message.MessageID, pq.Array(mediaIds))
-		time.Sleep(time.Second * time.Duration(3))
+		time.Sleep(time.Second * time.Duration(2))
 	}
 
 	keyboardConfigPublish := tgbotapi.NewMessage(parseChannelId, "Действие")
