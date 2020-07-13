@@ -45,6 +45,8 @@ func main() {
 		log.Fatal(err)
 	}
 	parseChannelId, _ = strconv.ParseInt(os.Getenv("PARSE_CHANNEL_ID"), 10, 64)
+	db = shared.ConnectToDb()
+	defer db.Close()
 
 	parseSiteBot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/parse_photos/" + parseSiteBot.Token))
 
@@ -114,6 +116,7 @@ func main() {
 }
 
 func linkIdExists(db *sqlx.DB, linkId int) bool {
+	defer db.Close()
 	if db.Get(&elite_model.Link{}, "SELECT id FROM links WHERE id=$1 LIMIT 1", linkId) != nil {
 		return false
 	}
@@ -128,10 +131,12 @@ func removeAction(update tgbotapi.Update, text string) {
 }
 
 func public(db *sqlx.DB, linkId int) {
+	defer db.Close()
 	db.QueryRowx(`UPDATE links SET status = $1 where id = $2`, ActionPublicId, linkId)
 }
 
 func toggleButtons(db *sqlx.DB, mediaIds []int) {
+	defer db.Close()
 	var mediasForActivate []elite_model.Media
 	db.Select(&mediasForActivate, "SELECT id, message_id, link_id, message_id, row FROM media WHERE id=any($1) "+
 		"and row = 0 order by id", pq.Array(mediaIds))
@@ -170,6 +175,7 @@ func toggleButtons(db *sqlx.DB, mediaIds []int) {
 }
 
 func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
+	defer db.Close()
 	for _, mediaForUpdate := range mediasForUpdate {
 		var medias []elite_model.Media
 		db.Select(&medias, `SELECT id, row from media WHERE message_id = $1 order by id`, mediaForUpdate.MessageId)
@@ -214,6 +220,7 @@ type Callback struct {
 }
 
 func linkUrlExists(db *sqlx.DB, url string) bool {
+	defer db.Close()
 	link := elite_model.Link{}
 	err := db.Get(&link, "SELECT id, link, status, model, description FROM links WHERE link=$1 LIMIT 1", url)
 	if err == nil {
@@ -249,6 +256,7 @@ func isValidUrl(path string) bool {
 }
 
 func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
+	defer db.Close()
 	var link = update.Message.Text
 
 	doc, err := htmlquery.LoadURL(link)
@@ -344,6 +352,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 }
 
 func changeState(db *sqlx.DB, userId int, linkId int, stateType int) {
+	defer db.Close()
 	err := db.QueryRowx(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
 		ON CONFLICT (user_id) DO UPDATE SET 
 			link_id = EXCLUDED.link_id,
