@@ -3,6 +3,7 @@ package main
 import (
 	"Elitebabes.com/elite_model"
 	"Elitebabes.com/shared"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	tgbotapi "github.com/PerfilovStanislav/telegram-bot-api"
@@ -12,7 +13,6 @@ import (
 	_ "github.com/lib/pq"
 	"golang.org/x/net/html"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,8 +29,8 @@ const ActionDescriptionId = 5
 
 var (
 	parseChannelId int64
-	sendPhotosBot  *tgbotapi.BotAPI
-	parseSiteBot   *tgbotapi.BotAPI
+	sendPhotosBot  *shared.Bot
+	parseSiteBot   *shared.Bot
 )
 
 func main() {
@@ -38,15 +38,9 @@ func main() {
 	shared.LoadEnv()
 	var db = shared.ConnectToDb()
 
-	var err error
-	sendPhotosBot, err = tgbotapi.NewBotAPI(os.Getenv("SEND_PHOTOS_BOT_TOKEN"))
-	parseSiteBot, err = tgbotapi.NewBotAPI(os.Getenv("PARSE_SITE_BOT_TOKEN"))
-	if err != nil {
-		log.Fatal(err)
-	}
 	parseChannelId, _ = strconv.ParseInt(os.Getenv("PARSE_CHANNEL_ID"), 10, 64)
-	db = shared.ConnectToDb()
-	defer db.Close()
+	sendPhotosBot = shared.NewBot(os.Getenv("SEND_PHOTOS_BOT_TOKEN"), parseChannelId)
+	parseSiteBot = shared.NewBot(os.Getenv("PARSE_SITE_BOT_TOKEN"), parseChannelId)
 
 	parseSiteBot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/parse_photos/" + parseSiteBot.Token))
 
@@ -64,7 +58,7 @@ func main() {
 				var state = elite_model.State{}
 				var err = db.Get(&state, "SELECT link_id, state_type FROM states WHERE user_id=$1 LIMIT 1", update.Message.From.ID)
 				if err != nil {
-					reSend(parseSiteBot, tgbotapi.NewEditMessageText(parseChannelId, update.CallbackQuery.Message.MessageID,
+					parseSiteBot.ReSend(tgbotapi.NewEditMessageText(parseChannelId, update.CallbackQuery.Message.MessageID,
 						"Ты не найден в базе"))
 					continue
 				} else {
@@ -80,7 +74,7 @@ func main() {
 						} else if state.StateType == ActionDescriptionId {
 							fieldName = "description"
 						}
-						db.QueryRowx(`UPDATE links SET `+fieldName+` = $1 where id = $2`, update.Message.Text, link.Id)
+						db.Exec(`UPDATE links SET `+fieldName+` = $1 where id = $2`, update.Message.Text, link.Id)
 						sendSimpleMessage(fmt.Sprintf("Поле %s изменено", fieldName))
 						continue
 					}
@@ -116,7 +110,6 @@ func main() {
 }
 
 func linkIdExists(db *sqlx.DB, linkId int) bool {
-	defer db.Close()
 	if db.Get(&elite_model.Link{}, "SELECT id FROM links WHERE id=$1 LIMIT 1", linkId) != nil {
 		return false
 	}
@@ -127,22 +120,20 @@ func removeAction(update tgbotapi.Update, text string) {
 	config := tgbotapi.NewEditMessageText(parseChannelId,
 		update.CallbackQuery.Message.MessageID,
 		text)
-	reSend(parseSiteBot, config)
+	parseSiteBot.ReSend(config)
 }
 
 func public(db *sqlx.DB, linkId int) {
-	defer db.Close()
-	db.QueryRowx(`UPDATE links SET status = $1 where id = $2`, ActionPublicId, linkId)
+	db.Exec(`UPDATE links SET status = $1 where id = $2`, ActionPublicId, linkId)
 }
 
 func toggleButtons(db *sqlx.DB, mediaIds []int) {
-	defer db.Close()
 	var mediasForActivate []elite_model.Media
 	db.Select(&mediasForActivate, "SELECT id, message_id, link_id, message_id, row FROM media WHERE id=any($1) "+
 		"and row = 0 order by id", pq.Array(mediaIds))
 	if mediasForActivate != nil {
 		for _, media := range mediasForActivate {
-			db.QueryRowx(`UPDATE media SET row = (select max(row) + 1 as max_row
+			db.Exec(`UPDATE media SET row = (select max(row) + 1 as max_row
 				FROM media WHERE link_id = $1) where id = $2`, media.LinkId, media.Id)
 		}
 		updateButtons(db, []elite_model.Media{mediasForActivate[0]})
@@ -164,18 +155,16 @@ func toggleButtons(db *sqlx.DB, mediaIds []int) {
 		db.Select(&messagesForUpdate, "SELECT message_id from media WHERE link_id = $1 and row >= $2"+
 			"group by message_id", mediasForDeactivate[0].LinkId, minRow)
 
-		//var messageIdsForUpdate []int
 		for _, media := range mediasForDeactivate {
-			var _, _ = db.Queryx(`UPDATE media SET row = row-1 WHERE link_id = $1 and row > $2`,
+			var _, _ = db.Exec(`UPDATE media SET row = row-1 WHERE link_id = $1 and row > $2`,
 				media.LinkId, media.Row)
-			db.QueryRowx(`UPDATE media SET row = 0 where id = $1`, media.Id)
+			db.Exec(`UPDATE media SET row = 0 where id = $1`, media.Id)
 		}
 		updateButtons(db, messagesForUpdate)
 	}
 }
 
 func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
-	defer db.Close()
 	for _, mediaForUpdate := range mediasForUpdate {
 		var medias []elite_model.Media
 		db.Select(&medias, `SELECT id, row from media WHERE message_id = $1 order by id`, mediaForUpdate.MessageId)
@@ -209,7 +198,7 @@ func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
 					buttons,
 				},
 			})
-		reSend(parseSiteBot, keyboardConfig)
+		parseSiteBot.ReSend(keyboardConfig)
 	}
 }
 
@@ -220,7 +209,6 @@ type Callback struct {
 }
 
 func linkUrlExists(db *sqlx.DB, url string) bool {
-	defer db.Close()
 	link := elite_model.Link{}
 	err := db.Get(&link, "SELECT id, link, status, model, description FROM links WHERE link=$1 LIMIT 1", url)
 	if err == nil {
@@ -228,7 +216,7 @@ func linkUrlExists(db *sqlx.DB, url string) bool {
 			sendSimpleMessage("Уже есть в базе")
 			return true
 		} else {
-			db.QueryRowx(`DELETE FROM links where id = $1`,
+			db.Exec(`DELETE FROM links where id = $1`,
 				link.Id)
 		}
 	}
@@ -237,8 +225,8 @@ func linkUrlExists(db *sqlx.DB, url string) bool {
 
 func sendSimpleMessage(text string) tgbotapi.Message {
 	config := tgbotapi.NewMessage(parseChannelId, text)
-	config.BaseChat.DisableNotification = true
-	return reSend(parseSiteBot, config)
+	config.DisableNotification = true
+	return parseSiteBot.ReSend(config)
 }
 
 func isValidUrl(path string) bool {
@@ -256,10 +244,9 @@ func isValidUrl(path string) bool {
 }
 
 func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
-	defer db.Close()
-	var link = update.Message.Text
+	var siteLink = update.Message.Text
 
-	doc, err := htmlquery.LoadURL(link)
+	doc, err := htmlquery.LoadURL(siteLink)
 	if err != nil {
 		return
 	}
@@ -270,7 +257,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 	var description = translate(htmlquery.InnerText(htmlquery.FindOne(doc, "//h1[@class='header-inline']/text()")))
 
 	db.QueryRowx(`INSERT INTO links (link, model, description) VALUES ($1, $2, $3) RETURNING id`,
-		link, names[1].Data, description).Scan(&linkId)
+		siteLink, names[1].Data, description).Scan(&linkId)
 
 	changeState(db, update.Message.From.ID, linkId, ActionToggleId)
 
@@ -284,6 +271,15 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 		var files []interface{}
 		for i2, photo := range photos {
 			var photoUrl = strings.Split(strings.Split(photo.FirstChild.Data, ", ")[0], " ")[0]
+			if getContentLength(photoUrl) == 0 {
+				photoUrl = strings.Replace(photoUrl, "_w800", "_w600", -1)
+				if getContentLength(photoUrl) == 0 {
+					photoUrl = strings.Replace(photoUrl, "_w600", "_w400", -1)
+					if getContentLength(photoUrl) == 0 {
+						continue
+					}
+				}
+			}
 			inpMedia := tgbotapi.NewInputMediaPhoto(photoUrl)
 			if i1 == 0 && i2 == 0 {
 				inpMedia.ParseMode = tgbotapi.ModeMarkdown
@@ -291,9 +287,10 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			}
 			files = append(files, inpMedia)
 		}
+		time.Sleep(time.Second * time.Duration(1))
 		config := tgbotapi.NewMediaGroup(parseChannelId, files)
 		config.BaseChat.DisableNotification = true
-		var messages = reSendGroup(sendPhotosBot, config)
+		var messages = sendPhotosBot.ReSendGroup(config)
 		time.Sleep(time.Second * time.Duration(1))
 
 		var mediaIds []int
@@ -323,11 +320,11 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 				buttons,
 			},
 		}
+		time.Sleep(time.Second * time.Duration(1))
 		keyboardConfig.BaseChat.DisableNotification = true
-
-		var message = reSend(parseSiteBot, keyboardConfig)
-		db.QueryRowx(`UPDATE media SET message_id = $1 WHERE id = any($2)`, message.MessageID, pq.Array(mediaIds))
-		time.Sleep(time.Second * time.Duration(2))
+		var message = parseSiteBot.ReSend(keyboardConfig)
+		db.Exec(`UPDATE media SET message_id = $1 WHERE id = any($2)`, message.MessageID, pq.Array(mediaIds))
+		time.Sleep(time.Second * time.Duration(1))
 	}
 
 	keyboardConfigPublish := tgbotapi.NewMessage(parseChannelId, "Действие")
@@ -348,42 +345,32 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			},
 		},
 	}
-	reSend(parseSiteBot, keyboardConfigPublish)
+	parseSiteBot.ReSend(keyboardConfigPublish)
+}
+
+func getContentLength(href string) int {
+	var requestBody bytes.Buffer
+
+	req, err := http.NewRequest("GET", href, &requestBody)
+	if err != nil {
+		return 0
+	}
+
+	// Отправляем запрос
+	client := &http.Client{}
+	response, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+
+	return int(response.ContentLength)
 }
 
 func changeState(db *sqlx.DB, userId int, linkId int, stateType int) {
-	defer db.Close()
-	err := db.QueryRowx(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
+	db.Exec(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
 		ON CONFLICT (user_id) DO UPDATE SET 
 			link_id = EXCLUDED.link_id,
 			state_type = EXCLUDED.state_type`, userId, linkId, stateType)
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func reSend(bot *tgbotapi.BotAPI, c tgbotapi.Chattable) tgbotapi.Message {
-	var resp, err = bot.Send(c)
-	if err != nil {
-		var botError = err.(*tgbotapi.Error)
-		if botError.RetryAfter > 0 {
-			time.Sleep(time.Second * (time.Duration(botError.RetryAfter) + 1))
-			return reSend(bot, c)
-		}
-	}
-	return resp
-}
-
-func reSendGroup(bot *tgbotapi.BotAPI, c tgbotapi.Chattable) []tgbotapi.Message {
-	var resp, err = bot.SendGroup(c)
-	if err != nil {
-		var botError = err.(*tgbotapi.Error)
-		if botError.RetryAfter > 0 {
-			time.Sleep(time.Second * (time.Duration(botError.RetryAfter) + 1))
-			return reSendGroup(bot, c)
-		}
-	}
-	return resp
 }
 
 func getFileIDFromMsg(message tgbotapi.Message) string {
