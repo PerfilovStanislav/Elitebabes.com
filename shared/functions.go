@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"Elitebabes.com/elite_model"
 	"fmt"
 	"github.com/fatih/color"
 	"github.com/jmoiron/sqlx"
@@ -8,6 +9,8 @@ import (
 	"github.com/mitchellh/go-ps"
 	"os"
 )
+
+const ReferralPercent = 0.10
 
 func LoadEnv() {
 	if err := godotenv.Load(); err != nil {
@@ -42,5 +45,36 @@ func SingleProcess(name string) {
 
 	if count > 1 {
 		os.Exit(0)
+	}
+}
+
+func PluralPostfix(count int) string {
+	switch {
+	case 5 <= count && count <= 20:
+		return "ов"
+	case count%10 == 1:
+		return ""
+	case count%10 == 0:
+		return "ов"
+	case count%10 <= 4:
+		return "а"
+	default:
+		return "ов"
+	}
+}
+
+func AddBonus(db *sqlx.DB, userId int, bonus float32, level int) {
+	_, _ = db.Exec("INSERT INTO bonuses (from_id, bonus) "+
+		"VALUES ($1, $2) "+
+		"ON CONFLICT (from_id) DO UPDATE "+
+		"SET bonus = bonuses.bonus + excluded.bonus",
+		userId, bonus)
+
+	if level != 1 {
+		var referral = elite_model.Referral{}
+		var err = db.Get(&referral, "SELECT parent_id from referrals where user_id = $1", userId)
+		if err == nil {
+			AddBonus(db, referral.ParentId, bonus*ReferralPercent, level-1)
+		}
 	}
 }

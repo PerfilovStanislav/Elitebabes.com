@@ -28,7 +28,8 @@ const ActionNameId = 4
 const ActionDescriptionId = 5
 
 var (
-	parseChannelId int64
+	debugChannelId int64
+	parseGrouplId  int64
 	sendPhotosBot  *shared.Bot
 	parseSiteBot   *shared.Bot
 )
@@ -38,12 +39,12 @@ func main() {
 	shared.LoadEnv()
 	var db = shared.ConnectToDb()
 
-	parseChannelId, _ = strconv.ParseInt(os.Getenv("PARSE_CHANNEL_ID"), 10, 64)
-	sendPhotosBot = shared.NewBot(os.Getenv("SEND_PHOTOS_BOT_TOKEN"), parseChannelId)
-	parseSiteBot = shared.NewBot(os.Getenv("PARSE_SITE_BOT_TOKEN"), parseChannelId)
+	debugChannelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_FOR_TEST_ID"), 10, 64)
+	parseGrouplId, _ = strconv.ParseInt(os.Getenv("PARSE_GROUP_ID"), 10, 64)
+	sendPhotosBot = shared.NewBot(os.Getenv("SEND_PHOTOS_BOT_TOKEN"), debugChannelId)
+	parseSiteBot = shared.NewBot(os.Getenv("PARSE_SITE_BOT_TOKEN"), debugChannelId)
 
 	parseSiteBot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/parse_photos/" + parseSiteBot.Token))
-
 	updates := parseSiteBot.ListenForWebhook("/go/elitebabes/parse_photos/" + parseSiteBot.Token)
 	go http.ListenAndServe(":8001", nil)
 
@@ -58,7 +59,7 @@ func main() {
 				var state = elite_model.State{}
 				var err = db.Get(&state, "SELECT link_id, state_type FROM states WHERE user_id=$1 LIMIT 1", update.Message.From.ID)
 				if err != nil {
-					parseSiteBot.ReSend(tgbotapi.NewEditMessageText(parseChannelId, update.CallbackQuery.Message.MessageID,
+					parseSiteBot.ReSend(tgbotapi.NewEditMessageText(parseGrouplId, update.CallbackQuery.Message.MessageID,
 						"Ты не найден в базе"))
 					continue
 				} else {
@@ -117,7 +118,7 @@ func linkIdExists(db *sqlx.DB, linkId int) bool {
 }
 
 func removeAction(update tgbotapi.Update, text string) {
-	config := tgbotapi.NewEditMessageText(parseChannelId,
+	config := tgbotapi.NewEditMessageText(parseGrouplId,
 		update.CallbackQuery.Message.MessageID,
 		text)
 	parseSiteBot.ReSend(config)
@@ -186,7 +187,7 @@ func updateButtons(db *sqlx.DB, mediasForUpdate []elite_model.Media) {
 			mediaIds = append(mediaIds, media.Id)
 		}
 
-		keyboardConfig := tgbotapi.NewEditMessageReplyMarkup(parseChannelId,
+		keyboardConfig := tgbotapi.NewEditMessageReplyMarkup(parseGrouplId,
 			mediaForUpdate.MessageId,
 			tgbotapi.InlineKeyboardMarkup{
 				InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
@@ -224,7 +225,7 @@ func linkUrlExists(db *sqlx.DB, url string) bool {
 }
 
 func sendSimpleMessage(text string) tgbotapi.Message {
-	config := tgbotapi.NewMessage(parseChannelId, text)
+	config := tgbotapi.NewMessage(parseGrouplId, text)
 	config.DisableNotification = true
 	return parseSiteBot.ReSend(config)
 }
@@ -288,7 +289,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			files = append(files, inpMedia)
 		}
 		time.Sleep(time.Second * time.Duration(1))
-		config := tgbotapi.NewMediaGroup(parseChannelId, files)
+		config := tgbotapi.NewMediaGroup(parseGrouplId, files)
 		config.BaseChat.DisableNotification = true
 		var messages = sendPhotosBot.ReSendGroup(config)
 		time.Sleep(time.Second * time.Duration(1))
@@ -301,7 +302,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 			mediaIds = append(mediaIds, mediaId)
 		}
 
-		var keyboardConfig = tgbotapi.NewMessage(parseChannelId, "Выбери самые лучшие фото ⚙")
+		var keyboardConfig = tgbotapi.NewMessage(parseGrouplId, "Выбери самые лучшие фото ⚙")
 		var buttons []tgbotapi.InlineKeyboardButton
 		for _, mediaId := range mediaIds {
 			data := fmt.Sprintf(`{"media_id": [%d], "action_id": %d}`, mediaId, ActionToggleId)
@@ -327,7 +328,7 @@ func parseUrl(db *sqlx.DB, update tgbotapi.Update) {
 		time.Sleep(time.Second * time.Duration(1))
 	}
 
-	keyboardConfigPublish := tgbotapi.NewMessage(parseChannelId, "Действие")
+	keyboardConfigPublish := tgbotapi.NewMessage(parseGrouplId, "Действие")
 	keyboardConfigPublish.BaseChat.DisableNotification = true
 	removeLink := fmt.Sprintf(`{"link_id": %d, "action_id": %d}`, linkId, ActionDeleteId)
 	publicLink := fmt.Sprintf(`{"link_id": %d, "action_id": %d}`, linkId, ActionPublicId)
@@ -367,7 +368,7 @@ func getContentLength(href string) int {
 }
 
 func changeState(db *sqlx.DB, userId int, linkId int, stateType int) {
-	db.Exec(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
+	_, _ = db.Exec(`INSERT INTO states (user_id, link_id, state_type) VALUES ($1, $2, $3)
 		ON CONFLICT (user_id) DO UPDATE SET 
 			link_id = EXCLUDED.link_id,
 			state_type = EXCLUDED.state_type`, userId, linkId, stateType)

@@ -22,7 +22,7 @@ func main() {
 	var db = shared.ConnectToDb()
 
 	sendPhotosBot := shared.NewBot(os.Getenv("SEND_PHOTOS_BOT_TOKEN"), 0)
-	sendPhotoChannelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_FOR_TEST_ID"), 10, 64)
+	sendPhotoChannelId, _ = strconv.ParseInt(os.Getenv("SEXY_GIRLS_CHANNEL_ID"), 10, 64)
 
 	link := elite_model.Link{}
 	err := db.Get(&link, "SELECT id, model, description FROM links WHERE status=1 order by random() limit 1")
@@ -41,12 +41,11 @@ func main() {
 
 	msg := tgbotapi.NewPhotoShare(sendPhotoChannelId, photo.FileId)
 	msg.ReplyMarkup = shared.ReplyMarkupLikes(link.Id, 0, 0)
-	msg.BaseChat.DisableNotification = true
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.Caption = link.Description
 	msg.Caption = fmt.Sprintf("*Модель:* #%s\n*Фотографий:* %d\n\n%s\n\n[Channel](tg://resolve?domain=%s) #Preview",
 		strings.Replace(link.Model, " ", "", -1),
-		photoCount, link.Description, os.Getenv("CHANNEL_FOR_TEST_NAME"))
+		photoCount, link.Description, os.Getenv("SEXY_GIRLS_CHANNEL_NAME"))
 
 	sendPhotosBot.ReSend(msg)
 

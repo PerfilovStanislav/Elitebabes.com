@@ -19,23 +19,23 @@ const SentSecondPartId = 7
 const SentLastPartId = 8
 
 var (
-	testChannelId int64
-	//likeBonusBot  *shared.Bot
-	sendPhotosBot *shared.Bot
+	debugChannelId     int64
+	sexyGirlsChannelId int64
+	sendPhotosBot      *shared.Bot
 )
 
 func main() {
-	shared.SingleProcess("ParsePhotos")
+	shared.SingleProcess("SendAlbum")
 	shared.LoadEnv()
 	var db = shared.ConnectToDb()
 
-	testChannelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_FOR_TEST_ID"), 10, 64)
-	//likeBonusBot = shared.NewBot(os.Getenv("LIKE_BONUS_BOT"), testChannelId)
-	sendPhotosBot = shared.NewBot(os.Getenv("SEND_PHOTOS_BOT_TOKEN"), testChannelId)
+	debugChannelId, _ = strconv.ParseInt(os.Getenv("CHANNEL_FOR_TEST_ID"), 10, 64)
+	sexyGirlsChannelId, _ = strconv.ParseInt(os.Getenv("SEXY_GIRLS_CHANNEL_ID"), 10, 64)
+	sendPhotosBot = shared.NewBot(os.Getenv("SEND_PHOTOS_BOT_TOKEN"), debugChannelId)
 
-	//sendPhotosBot.SetWebhook(tgbotapi.NewWebhook("https://3be2cd0e8b71.ngrok.io/" + sendPhotosBot.Token))
-	updates := sendPhotosBot.ListenForWebhook("/" + sendPhotosBot.Token)
-	go http.ListenAndServe(":3001", nil)
+	sendPhotosBot.SetWebhook(tgbotapi.NewWebhook("https://richinme.com/go/elitebabes/send_album/" + sendPhotosBot.Token))
+	updates := sendPhotosBot.ListenForWebhook("/go/elitebabes/send_album/" + sendPhotosBot.Token)
+	go http.ListenAndServe(":8002", nil)
 
 	for update := range updates {
 		if update.CallbackQuery != nil {
@@ -49,14 +49,14 @@ func main() {
 
 				var messageId = callback.Message.MessageID
 				var likes, dislikes = getCountOfLikes(db, callback.Message.Chat.ID, messageId)
-				var bonus = int(math.Max(math.Round(32.0/math.Pow(likes+dislikes+1.0, 0.3)-12.0), 1.0))
+				var bonus = math.Max(math.Round(32.0/math.Pow(likes+dislikes+1.0, 0.3)-12.0), 1.0)
 				insertLike(db, payload.Value, callback)
 				if payload.Value {
 					likes++
 				} else {
 					dislikes++
 				}
-				addBonus(db, callback, bonus)
+				shared.AddBonus(db, callback.From.ID, float32(bonus), 4)
 
 				sendPhotosBot.ReSend(
 					tgbotapi.NewEditMessageReplyMarkup(
@@ -65,7 +65,7 @@ func main() {
 						shared.ReplyMarkupLikes(payload.LinkId, int(likes), int(dislikes)),
 					),
 				)
-				answer(callback.ID, fmt.Sprintf("Вы получили %d бонус%s 💰", bonus, pluralPostfix(bonus)))
+				answer(callback.ID, fmt.Sprintf("Вы получили %d бонус%s 💰", int(bonus), shared.PluralPostfix(int(bonus))))
 
 				var link = getLink(db, payload.LinkId)
 				if link.Status == SentLastPartId {
@@ -128,12 +128,12 @@ func sendPhotos(db *sqlx.DB, messageId, fromRow, toRow, partId int, link elite_m
 		if i == 0 {
 			inpMedia.ParseMode = tgbotapi.ModeMarkdown
 			inpMedia.Caption = fmt.Sprintf("[Channel](tg://resolve?domain=%s) #Album #%s",
-				os.Getenv("CHANNEL_FOR_TEST_NAME"), strings.Replace(link.Model, " ", "", -1))
+				os.Getenv("SEXY_GIRLS_CHANNEL_NAME"), strings.Replace(link.Model, " ", "", -1))
 		}
 		files = append(files, inpMedia)
 	}
 
-	config := tgbotapi.NewMediaGroup(testChannelId, files)
+	config := tgbotapi.NewMediaGroup(sexyGirlsChannelId, files)
 	config.BaseChat.ReplyToMessageID = messageId
 	config.BaseChat.DisableNotification = true
 	sendPhotosBot.ReSendGroup(config)
@@ -168,27 +168,6 @@ func insertLike(db *sqlx.DB, like bool, callback *tgbotapi.CallbackQuery) {
 	if err != nil {
 		fmt.Println(err)
 	}
-}
-
-func pluralPostfix(count int) string {
-	switch {
-	case 5 <= count && count <= 20:
-		return "ов"
-	case count%10 == 1:
-		return ""
-	case count%10 <= 4:
-		return "а"
-	default:
-		return "ов"
-	}
-}
-
-func addBonus(db *sqlx.DB, callback *tgbotapi.CallbackQuery, bonus int) {
-	_, _ = db.Exec("INSERT INTO bonuses (from_id, bonus) "+
-		"VALUES ($1, $2) "+
-		"ON CONFLICT (from_id) DO UPDATE "+
-		"SET bonus = bonuses.bonus + excluded.bonus",
-		callback.From.ID, bonus)
 }
 
 func getCountOfLikes(db *sqlx.DB, chatId int64, messageId int) (float64, float64) {
