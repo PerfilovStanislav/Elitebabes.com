@@ -142,8 +142,8 @@ func sendPhotos(db *sqlx.DB, messageId, fromRow, toRow, partId int, link elite_m
 }
 
 func quiteliked(countOfPhotos float64, likes float64, dislikes float64) bool {
-	if dislikes == 0 {
-		dislikes = countOfPhotos - likes
+	if likes+dislikes < countOfPhotos {
+		dislikes += countOfPhotos - (likes + dislikes)
 	}
 	return likes/(likes+dislikes) >= 0.7
 }
