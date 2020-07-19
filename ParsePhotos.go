@@ -50,6 +50,10 @@ func main() {
 
 	for update := range updates {
 		if update.Message != nil {
+			if update.Message.Text == "/readytopublish" {
+				sendSimpleMessage(string(rune(getCountOfPublications(db))))
+				continue
+			}
 			if isValidUrl(update.Message.Text) {
 				if linkUrlExists(db, update.Message.Text) {
 					continue
@@ -126,6 +130,12 @@ func removeAction(update tgbotapi.Update, text string) {
 
 func public(db *sqlx.DB, linkId int) {
 	db.Exec(`UPDATE links SET status = $1 where id = $2`, ActionPublicId, linkId)
+}
+
+func getCountOfPublications(db *sqlx.DB) int {
+	var count int
+	_ = db.QueryRowx("SELECT count(*) from links where status=1").Scan(&count)
+	return count
 }
 
 func toggleButtons(db *sqlx.DB, mediaIds []int) {
