@@ -50,7 +50,7 @@ func main() {
 
 	for update := range updates {
 		if update.Message != nil {
-			if update.Message.Text == "/readytopublish" {
+			if update.Message.Text == "/readytopublish@ParseEliteBabesBot" {
 				sendSimpleMessage(string(rune(getCountOfPublications(db))))
 				continue
 			}
@@ -63,8 +63,7 @@ func main() {
 				var state = elite_model.State{}
 				var err = db.Get(&state, "SELECT link_id, state_type FROM states WHERE user_id=$1 LIMIT 1", update.Message.From.ID)
 				if err != nil {
-					parseSiteBot.ReSend(tgbotapi.NewEditMessageText(parseGrouplId, update.CallbackQuery.Message.MessageID,
-						"Ты не найден в базе"))
+					sendSimpleMessage("Ты не найден в базе")
 					continue
 				} else {
 					var link = elite_model.Link{}
