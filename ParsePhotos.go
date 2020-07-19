@@ -51,7 +51,7 @@ func main() {
 	for update := range updates {
 		if update.Message != nil {
 			if update.Message.Text == "/readytopublish@ParseEliteBabesBot" {
-				sendSimpleMessage(string(rune(getCountOfPublications(db))))
+				sendSimpleMessage(fmt.Sprintf("Найдено неопубликованных: %d", getCountOfPublications(db)))
 				continue
 			}
 			if isValidUrl(update.Message.Text) {
